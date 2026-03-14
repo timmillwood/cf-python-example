@@ -1,18 +1,12 @@
 """
-Cloudflare Python Worker with FastAPI and Langchain using Workers AI.
-
-This worker exposes a FastAPI application that uses Langchain with 
-Cloudflare Workers AI as the LLM backend.
+Cloudflare Python Worker with Workers AI.
 """
 
-from fastapi import FastAPI, Request
-from pydantic import BaseModel
-from langchain_core.language_models.llms import LLM
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-from typing import Any, List, Optional
-import js
+from workers import WorkerEntrypoint, Response
+import json
+from urllib.parse import urlparse
 from pyodide.ffi import to_js as _to_js
+import js
 
 
 def to_js(obj):
@@ -20,234 +14,74 @@ def to_js(obj):
     return _to_js(obj, dict_converter=js.Object.fromEntries)
 
 
-# Custom LLM wrapper for Cloudflare Workers AI
-class CloudflareWorkersAI(LLM):
-    """Custom Langchain LLM that uses Cloudflare Workers AI binding."""
-    
-    ai_binding: Any = None
-    model: str = "@cf/meta/llama-3.1-8b-instruct"
-    
-    class Config:
-        arbitrary_types_allowed = True
-    
-    @property
-    def _llm_type(self) -> str:
-        return "cloudflare-workers-ai"
-    
-    def _call(
-        self,
-        prompt: str,
-        stop: Optional[List[str]] = None,
-        **kwargs: Any,
-    ) -> str:
-        # Synchronous call not supported in Workers environment
-        raise NotImplementedError("Use _acall for async operations")
-    
-    async def _acall(
-        self,
-        prompt: str,
-        stop: Optional[List[str]] = None,
-        **kwargs: Any,
-    ) -> str:
-        """Async call to Workers AI."""
-        if self.ai_binding is None:
-            raise ValueError("AI binding not set")
+class Default(WorkerEntrypoint):
+    async def fetch(self, request):
+        url = urlparse(request.url)
+        path = url.path
+        method = request.method
         
-        response = await self.ai_binding.run(
-            self.model,
-            to_js({"prompt": prompt})
-        )
+        # Route requests
+        if path == "/" and method == "GET":
+            return self.json_response({
+                "status": "ok",
+                "service": "Python Workers AI API",
+                "endpoints": ["POST /chat", "POST /summarize", "POST /translate"]
+            })
         
+        if path == "/chat" and method == "POST":
+            return await self.handle_chat(request)
+        
+        if path == "/summarize" and method == "POST":
+            return await self.handle_summarize(request)
+        
+        if path == "/translate" and method == "POST":
+            return await self.handle_translate(request)
+        
+        return self.json_response({"error": "Not found"}, status=404)
+    
+    async def handle_chat(self, request):
+        body = json.loads(await request.text())
+        message = body.get("message", "")
+        model = body.get("model", "@cf/meta/llama-3.1-8b-instruct")
+        
+        prompt = f"You are a helpful AI assistant. Be concise.\n\nUser: {message}\n\nAssistant:"
+        response = await self.call_ai(prompt, model)
+        
+        return self.json_response({"response": response, "model": model})
+    
+    async def handle_summarize(self, request):
+        body = json.loads(await request.text())
+        text = body.get("text", "")
+        max_length = body.get("max_length", 100)
+        
+        prompt = f"Summarize in {max_length} words or fewer:\n\n{text}\n\nSummary:"
+        summary = await self.call_ai(prompt)
+        
+        return self.json_response({
+            "summary": summary,
+            "original_length": len(text.split())
+        })
+    
+    async def handle_translate(self, request):
+        body = json.loads(await request.text())
+        text = body.get("text", "")
+        target = body.get("target_language", "Spanish")
+        
+        prompt = f"Translate to {target}. Output only the translation:\n\n{text}"
+        translation = await self.call_ai(prompt)
+        
+        return self.json_response({
+            "translation": translation,
+            "target_language": target
+        })
+    
+    async def call_ai(self, prompt: str, model: str = "@cf/meta/llama-3.1-8b-instruct") -> str:
+        response = await self.env.AI.run(model, to_js({"prompt": prompt}))
         return response.response
-
-
-# Create FastAPI app
-app = FastAPI(
-    title="Langchain + Workers AI API",
-    description="A FastAPI application using Langchain with Cloudflare Workers AI",
-    version="1.0.0"
-)
-
-
-# Request models
-class ChatRequest(BaseModel):
-    message: str
-    model: str = "@cf/meta/llama-3.1-8b-instruct"
-
-
-class SummarizeRequest(BaseModel):
-    text: str
-    max_length: int = 100
-
-
-class TranslateRequest(BaseModel):
-    text: str
-    target_language: str = "Spanish"
-
-
-# Store the AI binding globally for the request context
-_ai_binding = None
-
-
-def get_llm(model: str = "@cf/meta/llama-3.1-8b-instruct") -> CloudflareWorkersAI:
-    """Get an LLM instance with the current AI binding."""
-    return CloudflareWorkersAI(ai_binding=_ai_binding, model=model)
-
-
-@app.get("/")
-async def root():
-    """Health check endpoint."""
-    return {
-        "status": "ok",
-        "service": "Langchain + Workers AI API",
-        "endpoints": ["/chat", "/summarize", "/translate"]
-    }
-
-
-@app.post("/chat")
-async def chat(request: ChatRequest):
-    """
-    Chat endpoint using Langchain with Workers AI.
     
-    Send a message and get an AI-generated response.
-    """
-    llm = get_llm(request.model)
-    
-    prompt_template = ChatPromptTemplate.from_messages([
-        ("system", "You are a helpful AI assistant. Be concise and informative."),
-        ("human", "{input}")
-    ])
-    
-    # Format prompt manually and call LLM directly to avoid asyncio.create_task context issue
-    formatted = prompt_template.format(input=request.message)
-    response = await llm._acall(formatted)
-    
-    return {
-        "response": response,
-        "model": request.model
-    }
-
-
-@app.post("/summarize")
-async def summarize(request: SummarizeRequest):
-    """
-    Summarize text using Langchain with Workers AI.
-    """
-    llm = get_llm()
-    
-    prompt_template = ChatPromptTemplate.from_messages([
-        ("system", "You are a text summarization expert. Summarize the following text concisely in about {max_length} words or fewer."),
-        ("human", "{text}")
-    ])
-    
-    # Format prompt manually and call LLM directly to avoid asyncio.create_task context issue
-    formatted = prompt_template.format(text=request.text, max_length=request.max_length)
-    summary = await llm._acall(formatted)
-    
-    return {
-        "summary": summary,
-        "original_length": len(request.text.split()),
-    }
-
-
-@app.post("/translate")
-async def translate(request: TranslateRequest):
-    """
-    Translate text to a target language using Langchain with Workers AI.
-    """
-    llm = get_llm()
-    
-    prompt_template = ChatPromptTemplate.from_messages([
-        ("system", "You are a professional translator. Translate the following text to {target_language}. Only output the translation, nothing else."),
-        ("human", "{text}")
-    ])
-    
-    # Format prompt manually and call LLM directly to avoid asyncio.create_task context issue
-    formatted = prompt_template.format(text=request.text, target_language=request.target_language)
-    translation = await llm._acall(formatted)
-    
-    return {
-        "translation": translation,
-        "target_language": request.target_language
-    }
-
-
-# ASGI adapter for Cloudflare Workers
-async def on_fetch(request, env):
-    """
-    Main entry point for the Cloudflare Worker.
-    
-    This function adapts the incoming Cloudflare Worker request to ASGI
-    format that FastAPI can understand.
-    """
-    global _ai_binding
-    _ai_binding = env.AI
-    
-    import json
-    from urllib.parse import urlparse
-    
-    # Parse the request
-    url = urlparse(request.url)
-    path = url.path
-    method = request.method
-    
-    # Build headers dict
-    headers = []
-    request_headers = request.headers
-    for entry in request_headers.entries():
-        headers.append((entry[0].lower().encode(), str(entry[1]).encode()))
-    
-    # Get request body
-    body = b""
-    if method in ["POST", "PUT", "PATCH"]:
-        try:
-            body = (await request.text()).encode()
-        except:
-            body = b""
-    
-    # Build ASGI scope
-    scope = {
-        "type": "http",
-        "asgi": {"version": "3.0"},
-        "http_version": "1.1",
-        "method": method,
-        "path": path,
-        "query_string": (url.query or "").encode(),
-        "headers": headers,
-        "server": (url.hostname or "localhost", int(url.port or 443)),
-    }
-    
-    # Response accumulator
-    response_started = False
-    response_status = 200
-    response_headers = {}
-    response_body = []
-    
-    async def receive():
-        return {"type": "http.request", "body": body, "more_body": False}
-    
-    async def send(message):
-        nonlocal response_started, response_status, response_headers
-        if message["type"] == "http.response.start":
-            response_started = True
-            response_status = message["status"]
-            for key, value in message.get("headers", []):
-                response_headers[key.decode()] = value.decode()
-        elif message["type"] == "http.response.body":
-            body_content = message.get("body", b"")
-            if body_content:
-                response_body.append(body_content)
-    
-    # Call FastAPI
-    await app(scope, receive, send)
-    
-    # Build response
-    from workers import Response
-    
-    final_body = b"".join(response_body)
-    
-    return Response(
-        final_body.decode(),
-        status=response_status,
-        headers=response_headers
-    )
+    def json_response(self, data, status=200):
+        return Response(
+            json.dumps(data),
+            status=status,
+            headers={"Content-Type": "application/json"}
+        )

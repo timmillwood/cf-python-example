@@ -1,13 +1,9 @@
 [project]
 name = "python-fastapi-langchain-worker"
 version = "0.1.0"
-description = "A Cloudflare Python Worker with FastAPI and Langchain using Workers AI"
+description = "A Cloudflare Python Worker with Workers AI"
 requires-python = ">=3.12"
-dependencies = [
-    "fastapi",
-    "langchain",
-    "langchain-core",
-]
+dependencies = []
 
 [dependency-groups]
 dev = [
