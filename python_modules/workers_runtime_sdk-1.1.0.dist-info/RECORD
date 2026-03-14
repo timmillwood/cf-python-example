@@ -1,0 +1,12 @@
+_cloudflare_compat_flags.pyi,sha256=xvA4GFtXkDbK6rIv4GMZ_4WYo--45cOvP7kuNcaehFk,131
+_pyodide_entrypoint_helper.pyi,sha256=WbDYGJQbNnFIFDlrVIeHeEukU-HuAn33e9wShldLkyU,264
+asgi.py,sha256=jpKOYIozK916wWxiFKhp0GHy41NAIQHrgcx7kf4Fc1E,9612
+workers/__init__.py,sha256=mzt2qllTbLNSWXYNoB3EWnLduCO_J1VEkTGPXGp58Ko,1285
+workers/_workers.py,sha256=66LFoIAk0LY3dT3N2FIIJuqRdO82FWrrx0JwZ167sAY,45254
+workers/py.typed,sha256=47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU,0
+workers/workflows.py,sha256=k3n99BbaVtJAA2kWWlG3Lag_ckrqiTrHhShWMdCYA78,270
+workers_runtime_sdk-1.1.0.dist-info/INSTALLER,sha256=5hhM4Q4mYTT9z6QB6PGpUAW81PGNFrYrdXMj4oM_6ak,2
+workers_runtime_sdk-1.1.0.dist-info/METADATA,sha256=2f_Ijb7_s_bLYAE3n6jj9oZCpzzZ7-ZlFa2DyBHmUY0,521
+workers_runtime_sdk-1.1.0.dist-info/RECORD,,
+workers_runtime_sdk-1.1.0.dist-info/REQUESTED,sha256=47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU,0
+workers_runtime_sdk-1.1.0.dist-info/WHEEL,sha256=QccIxa26bgl1E6uMy58deGWi-0aeIkkangHcxk2kWfw,87
